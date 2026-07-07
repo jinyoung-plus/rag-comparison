@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG 비교 서비스 — 세종시교육청 자체감사 규정</title>
+<style>
+  :root {
+    --ink: #1c2333;
+    --paper: #f4f6f9;
+    --card: #ffffff;
+    --line: #d9dee8;
+    --navy: #24457c;
+    --navy-soft: #e8eef8;
+    --accent: #b23a48;   /* 결재인(도장) 붉은색 — 순위변동·강조 */
+    --ok: #2c7a4b;
+    --mut: #6b7385;
+    --mono: "Consolas", "D2Coding", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--paper); color: var(--ink); font-family: "Malgun Gothic","Apple SD Gothic Neo",sans-serif; font-size: 14px; line-height: 1.55; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  header { border-bottom: 3px solid var(--navy); padding-bottom: 14px; margin-bottom: 16px; }
+  header h1 { font-size: 21px; color: var(--navy); letter-spacing: -0.5px; }
+  header p { color: var(--mut); font-size: 12.5px; margin-top: 4px; }
+
+  /* 설정 패널 */
+  .settings { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px; }
+  .settings summary { cursor: pointer; padding: 12px 16px; font-weight: bold; color: var(--navy); user-select: none; }
+  .settings-body { padding: 4px 16px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .settings-body label { font-size: 12px; color: var(--mut); display: block; margin-bottom: 3px; }
+  .settings-body input, .settings-body select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; }
+  .settings-note { grid-column: 1 / -1; font-size: 12px; color: var(--accent); }
+
+  /* 탭 */
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab-btn { flex: 1; padding: 11px 8px; border: 1px solid var(--line); border-bottom: 3px solid transparent; background: #eceff5; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13.5px; font-weight: bold; color: var(--mut); }
+  .tab-btn.active { background: var(--card); color: var(--navy); border-bottom-color: var(--navy); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* 질문 입력 */
+  .ask { display: flex; gap: 8px; margin-bottom: 14px; }
+  .ask input { flex: 1; padding: 11px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+  .ask button { padding: 11px 22px; background: var(--navy); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+  .ask button:disabled { background: #9aa5bd; cursor: wait; }
+
+  /* 파이프라인 단계 표시 */
+  .pipe { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; min-height: 30px; }
+  .pipe .step { padding: 5px 10px; border-radius: 20px; background: #e8ebf2; color: var(--mut); font-size: 12px; font-family: var(--mono); }
+  .pipe .step.run { background: var(--navy-soft); color: var(--navy); font-weight: bold; }
+  .pipe .step.done { background: #e4f2ea; color: var(--ok); }
+  .pipe .step.fail { background: #f9e4e7; color: var(--accent); }
+
+  /* 결과 그리드 */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-2x2 { display: grid; grid-template-columns: 130px 1fr 1fr; gap: 10px; align-items: stretch; }
+  .axis-col { background: var(--navy); color: #fff; border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .axis-row { background: var(--navy-soft); color: var(--navy); border-radius: 8px; padding: 10px; text-align: center; font-weight: bold; font-size: 13px; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; letter-spacing: 2px; }
+  .axis-corner { display: flex; align-items: center; justify-content: center; color: var(--mut); font-size: 11px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .card h3 { font-size: 13.5px; color: var(--navy); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: baseline; }
+  .card h3 .ms { font-family: var(--mono); font-size: 11.5px; color: var(--mut); font-weight: normal; }
+  .answer { white-space: pre-wrap; font-size: 13.5px; margin-bottom: 12px; }
+  .answer.empty { color: var(--mut); font-style: italic; }
+  .err { color: var(--accent); font-size: 12.5px; white-space: pre-wrap; }
+
+  /* 청크 카드 */
+  .chunks details { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px; background: #fbfcfe; }
+  .chunks summary { cursor: pointer; padding: 8px 10px; font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; user-select: none; }
+  .chunks .rank { font-family: var(--mono); font-weight: bold; color: var(--navy); }
+  .chunks .score { font-family: var(--mono); color: var(--mut); }
+  .chunks .delta { font-family: var(--mono); font-weight: bold; }
+  .chunks .delta.up { color: var(--accent); }
+  .chunks .delta.down { color: #3a6ab2; }
+  .chunks .delta.same { color: var(--mut); }
+  .chunks .path { color: var(--ok); font-size: 11.5px; }
+  .chunks .body { padding: 8px 12px 12px; font-size: 12.5px; color: #3a4055; white-space: pre-wrap; border-top: 1px dashed var(--line); }
+
+  .timing { font-family: var(--mono); font-size: 11.5px; color: var(--mut); margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
+
+  @media (max-width: 860px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .grid-2x2 { grid-template-columns: 1fr; }
+    .axis-row { writing-mode: horizontal-tb; letter-spacing: 0; }
+    .settings-body { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>RAG 기반 문서 검색·답변 비교 서비스</h1>
+  <p>대상 문서: 세종특별자치시교육청 자체감사 규정 · 청킹(시맨틱/계층형) × RAG(Naive/Advanced) 4조합 비교</p>
+</header>
+
+<!-- ===== 설정 패널 ===== -->
+<details class="settings" open>
+  <summary>API 설정 (키는 메모리에만 유지, 저장되지 않음)</summary>
+  <div class="settings-body">
+    <div>
+      <label>OpenRouter API 키 (임베딩 + 답변 생성)</label>
+      <input type="password" id="k-openrouter" placeholder="sk-or-...">
+    </div>
+    <div>
+      <label>Cohere API 키 (Advanced 리랭크)</label>
+      <input type="password" id="k-cohere" placeholder="...">
+    </div>
+    <div>
+      <label>Supabase 프로젝트 URL</label>
+      <input type="text" id="k-sburl" placeholder="https://xxxx.supabase.co">
+    </div>
+    <div>
+      <label>Supabase anon 키</label>
+      <input type="password" id="k-sbkey" placeholder="eyJ...">
+    </div>
+    <div>
+      <label>답변 생성 모델 (OpenRouter)</label>
+      <select id="k-model">
+        <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
+        <option value="google/gemini-flash-1.5">google/gemini-flash-1.5</option>
+        <option value="meta-llama/llama-3.1-8b-instruct">meta-llama/llama-3.1-8b-instruct</option>
+      </select>
+    </div>
+    <div>
+      <label>Top-K (최종 근거 청크 수)</label>
+      <select id="k-topk">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="7">7</option>
+      </select>
+    </div>
+    <div class="settings-note">※ localStorage 미사용 — 새로고침 시 키 재입력 필요</div>
+  </div>
+</details>
+
+<!-- ===== 탭 ===== -->
+<div class="tabs">
+  <button class="tab-btn active" id="tb-naive">서비스 1 · Naive RAG</button>
+  <button class="tab-btn" id="tb-adv">서비스 2 · Advanced RAG</button>
+  <button class="tab-btn" id="tb-quad">전체 비교 2×2</button>
+</div>
+
+<!-- ===== 탭 1: Naive ===== -->
+<div class="panel active" id="p-naive">
+  <div class="ask">
+    <input type="text" id="q-naive" placeholder="질문 입력 (예: 일상감사는 어떤 업무에 대해 의뢰해야 하나요?)">
+    <button id="run-naive">실행</button>
+  </div>
+  <div class="pipe" id="pipe-naive"></div>
+  <div class="grid-2">
+    <div class="card"><h3>시맨틱 청킹 × Naive <span class="ms" id="ms-naive-sem"></span></h3><div id="out-naive-sem"><div class="answer empty">질문을 입력하고 실행하세요.</div></div></div>
+    <div class="card"><h3>계층형 청킹 × Naive <span class="ms" id="ms-naive-hier"></span></h3><div id="out-naive-hier"><div class="answer empty">질문을 입력하고 실행하세요.</div></div></div>
+  </div>
+</div>
+
+<!-- ===== 탭 2: Advanced ===== -->
+<div class="panel" id="p-adv">
+  <div class="ask">
+    <input type="text" id="q-adv" placeholder="질문 입력 — Top-20 검색 후 Cohere 리랭크 적용">
+    <button id="run-adv">실행</button>
+  </div>
+  <div class="pipe" id="pipe-adv"></div>
+  <div class="grid-2">
+    <div class="card"><h3>시맨틱 청킹 × Advanced <span class="ms" id="ms-adv-sem"></span></h3><div id="out-adv-sem"><div class="answer empty">질문을 입력하고 실행하세요.</div></div></div>
+    <div class="card"><h3>계층형 청킹 × Advanced <span class="ms" id="ms-adv-hier"></span></h3><div id="out-adv-hier"><div class="answer empty">질문을 입력하고 실행하세요.</div></div></div>
+  </div>
+</div>
+
+<!-- ===== 탭 3: 2×2 ===== -->
+<div class="panel" id="p-quad">
+  <div class="ask">
+    <input type="text" id="q-quad" placeholder="질문 1개 → 4가지 조합 동시 실행">
+    <button id="run-quad">4조합 실행</button>
+  </div>
+  <div class="pipe" id="pipe-quad"></div>
+  <div class="grid-2x2">
+    <div class="axis-corner">RAG ↓ / 청킹 →</div>
+    <div class="axis-col">시맨틱 청킹</div>
+    <div class="axis-col">계층형 청킹</div>
+
+    <div class="axis-row">Naive RAG</div>
+    <div class="card"><h3>① 시맨틱 × Naive <span class="ms" id="ms-q1"></span></h3><div id="out-q1"><div class="answer empty">—</div></div></div>
+    <div class="card"><h3>② 계층형 × Naive <span class="ms" id="ms-q2"></span></h3><div id="out-q2"><div class="answer empty">—</div></div></div>
+
+    <div class="axis-row">Advanced RAG</div>
+    <div class="card"><h3>③ 시맨틱 × Advanced <span class="ms" id="ms-q3"></span></h3><div id="out-q3"><div class="answer empty">—</div></div></div>
+    <div class="card"><h3>④ 계층형 × Advanced <span class="ms" id="ms-q4"></span></h3><div id="out-q4"><div class="answer empty">—</div></div></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ============================================================
+// 공통 유틸
+// ============================================================
+const $ = (id) => document.getElementById(id);
+const cfg = () => ({
+  orKey: $("k-openrouter").value.trim(),
+  coKey: $("k-cohere").value.trim(),
+  sbUrl: $("k-sburl").value.trim().replace(/\/+$/, ""),
+  sbKey: $("k-sbkey").value.trim(),
+  model: $("k-model").value,
+  topK: parseInt($("k-topk").value, 10),
+});
+
+function checkCfg(c, needCohere) {
+  const miss = [];
+  if (!c.orKey) miss.push("OpenRouter 키");
+  if (!c.sbUrl) miss.push("Supabase URL");
+  if (!c.sbKey) miss.push("Supabase anon 키");
+  if (needCohere && !c.coKey) miss.push("Cohere 키");
+  return miss;
+}
+
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const fmt = (n) => (typeof n === "number" ? n.toFixed(4) : "-");
+
+// ---- 파이프라인 표시 ----
+function pipeInit(el, names) {
+  el.innerHTML = names.map((n,i)=>`<span class="step" id="${el.id}-s${i}">${n}</span>`).join("");
+  return {
+    run: (i)=>{ $(`${el.id}-s${i}`).className = "step run"; },
+    done:(i,ms)=>{ const s=$(`${el.id}-s${i}`); s.className="step done"; s.textContent += ` ${ms}ms`; },
+    fail:(i)=>{ $(`${el.id}-s${i}`).className = "step fail"; },
+  };
+}
+
+// ============================================================
+// API 호출부
+// ============================================================
+// 1) 질문 임베딩 (OpenRouter, text-embedding-3-small 1536차원)
+async function embed(c, text) {
+  const r = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${c.orKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "openai/text-embedding-3-small", input: text }),
+  });
+  if (!r.ok) throw new Error(`임베딩 실패 (${r.status}): ${await r.text()}`);
+  const d = await r.json();
+  return d.data[0].embedding;
+}
+
+// 2) Supabase 벡터 검색 (RPC)
+async function vectorSearch(c, table, embedding, count) {
+  const fn = table === "semantic" ? "match_docs_semantic_v2" : "match_docs_hier_v2";
+  const r = await fetch(`${c.sbUrl}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "apikey": c.sbKey,
+      "Authorization": `Bearer ${c.sbKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query_embedding: embedding, match_count: count }),
+  });
+  if (!r.ok) throw new Error(`Supabase 검색 실패 (${r.status}): ${await r.text()}`);
+  return await r.json(); // [{id, content, metadata, similarity}]
+}
+
+// 3) Cohere 리랭크
+async function rerank(c, query, docs, topN) {
+  const r = await fetch("https://api.cohere.com/v2/rerank", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${c.coKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "rerank-v3.5",
+      query: query,
+      documents: docs.map(d => d.content),
+      top_n: topN,
+    }),
+  });
+  if (!r.ok) throw new Error(`Cohere 리랭크 실패 (${r.status}): ${await r.text()}`);
+  const d = await r.json();
+  // results: [{index, relevance_score}] — index는 입력 docs 기준
+  return d.results.map((res, newRank) => ({
+    ...docs[res.index],
+    rerank_score: res.relevance_score,
+    orig_rank: res.index + 1,
+    new_rank: newRank + 1,
+  }));
+}
+
+// 4) 답변 생성 (OpenRouter chat)
+async function generate(c, question, chunks) {
+  const context = chunks.map((ch, i) => {
+    const path = ch.metadata?.source_path || `시맨틱 청크 #${ch.id}`;
+    return `[근거 ${i+1}] (${path})\n${ch.content}`;
+  }).join("\n\n");
+
+  const sys = "당신은 세종특별자치시교육청 규정 안내 도우미입니다. 반드시 다음 원칙을 지키세요:\n" +
+    "1. 제공된 근거만 사용하여 답변할 것 (외부 지식 사용 금지)\n" +
+    "2. 답변 내 각 내용에 사용한 근거 번호를 [근거 N] 형태로 명시할 것\n" +
+    "3. 근거에 없는 내용을 물으면 '제공된 근거에서 확인할 수 없습니다'라고 답할 것\n" +
+    "4. 개조식(불릿·번호 위주)으로 간결하게 작성할 것";
+
+  const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${c.orKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: c.model,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: `질문: ${question}\n\n근거 자료:\n${context}` },
+      ],
+    }),
+  });
+  if (!r.ok) throw new Error(`답변 생성 실패 (${r.status}): ${await r.text()}`);
+  const d = await r.json();
+  return d.choices[0].message.content;
+}
+
+// ============================================================
+// 파이프라인 (조합 1건 실행)
+// ============================================================
+async function runNaive(c, question, embedding, table) {
+  const t = {};
+  let t0 = performance.now();
+  const chunks = await vectorSearch(c, table, embedding, c.topK);
+  t.search = Math.round(performance.now() - t0);
+
+  t0 = performance.now();
+  const answer = await generate(c, question, chunks);
+  t.generate = Math.round(performance.now() - t0);
+
+  return { answer, chunks, timing: t, mode: "naive" };
+}
+
+async function runAdvanced(c, question, embedding, table) {
+  const t = {};
+  let t0 = performance.now();
+  const candidates = await vectorSearch(c, table, embedding, 20);
+  t.search = Math.round(performance.now() - t0);
+
+  t0 = performance.now();
+  const reranked = await rerank(c, question, candidates, c.topK);
+  t.rerank = Math.round(performance.now() - t0);
+
+  t0 = performance.now();
+  const answer = await generate(c, question, reranked);
+  t.generate = Math.round(performance.now() - t0);
+
+  return { answer, chunks: reranked, timing: t, mode: "advanced" };
+}
+
+// ============================================================
+// 렌더링
+// ============================================================
+function renderResult(outId, msId, res) {
+  const chunkHtml = res.chunks.map((ch, i) => {
+    const path = ch.metadata?.source_path || `시맨틱 청크 #${ch.id} (tokens: ${ch.metadata?.token_count ?? "-"})`;
+    let deltaHtml = "";
+    let scoreHtml = `<span class="score">유사도 ${fmt(ch.similarity)}</span>`;
+    if (res.mode === "advanced") {
+      const d = ch.orig_rank - ch.new_rank;
+      const cls = d > 0 ? "up" : d < 0 ? "down" : "same";
+      const sym = d > 0 ? `▲${d}` : d < 0 ? `▼${-d}` : "—";
+      deltaHtml = `<span class="delta ${cls}">${sym}</span>`;
+      scoreHtml += ` <span class="score">리랭크 ${fmt(ch.rerank_score)}</span>`;
+    }
+    return `<details>
+      <summary><span class="rank">#${i+1}</span>${deltaHtml}${scoreHtml}<span class="path">${esc(path)}</span></summary>
+      <div class="body">${esc(ch.content)}</div>
+    </details>`;
+  }).join("");
+
+  const timingStr = Object.entries(res.timing).map(([k,v])=>`${k}: ${v}ms`).join(" · ");
+  const total = Object.values(res.timing).reduce((a,b)=>a+b, 0);
+
+  $(outId).innerHTML = `
+    <div class="answer">${esc(res.answer)}</div>
+    <div class="chunks">${chunkHtml}</div>
+    <div class="timing">${timingStr}</div>`;
+  $(msId).textContent = `총 ${total}ms`;
+}
+
+function renderError(outId, err) {
+  $(outId).innerHTML = `<div class="err">오류: ${esc(err.message || err)}</div>`;
+}
+
+// ============================================================
+// 탭별 실행 핸들러
+// ============================================================
+async function execNaive() {
+  const c = cfg(), q = $("q-naive").value.trim();
+  const miss = checkCfg(c, false);
+  if (miss.length) { alert("설정 누락: " + miss.join(", ")); return; }
+  if (!q) { alert("질문을 입력하세요."); return; }
+
+  const btn = $("run-naive"); btn.disabled = true;
+  const P = pipeInit($("pipe-naive"), ["질문 임베딩", "벡터 검색×2", "답변 생성×2"]);
+  try {
+    P.run(0); let t0 = performance.now();
+    const emb = await embed(c, q);
+    P.done(0, Math.round(performance.now() - t0));
+
+    P.run(1); P.run(2);
+    const [rSem, rHier] = await Promise.all([
+      runNaive(c, q, emb, "semantic"),
+      runNaive(c, q, emb, "hier"),
+    ]);
+    P.done(1, rSem.timing.search + rHier.timing.search);
+    P.done(2, rSem.timing.generate + rHier.timing.generate);
+
+    renderResult("out-naive-sem", "ms-naive-sem", rSem);
+    renderResult("out-naive-hier", "ms-naive-hier", rHier);
+  } catch (e) {
+    renderError("out-naive-sem", e); renderError("out-naive-hier", e);
+  } finally { btn.disabled = false; }
+}
+
+async function execAdvanced() {
+  const c = cfg(), q = $("q-adv").value.trim();
+  const miss = checkCfg(c, true);
+  if (miss.length) { alert("설정 누락: " + miss.join(", ")); return; }
+  if (!q) { alert("질문을 입력하세요."); return; }
+
+  const btn = $("run-adv"); btn.disabled = true;
+  const P = pipeInit($("pipe-adv"), ["질문 임베딩", "Top-20 검색×2", "Cohere 리랭크×2", "답변 생성×2"]);
+  try {
+    P.run(0); let t0 = performance.now();
+    const emb = await embed(c, q);
+    P.done(0, Math.round(performance.now() - t0));
+
+    P.run(1); P.run(2); P.run(3);
+    const [rSem, rHier] = await Promise.all([
+      runAdvanced(c, q, emb, "semantic"),
+      runAdvanced(c, q, emb, "hier"),
+    ]);
+    P.done(1, rSem.timing.search + rHier.timing.search);
+    P.done(2, rSem.timing.rerank + rHier.timing.rerank);
+    P.done(3, rSem.timing.generate + rHier.timing.generate);
+
+    renderResult("out-adv-sem", "ms-adv-sem", rSem);
+    renderResult("out-adv-hier", "ms-adv-hier", rHier);
+  } catch (e) {
+    renderError("out-adv-sem", e); renderError("out-adv-hier", e);
+  } finally { btn.disabled = false; }
+}
+
+async function execQuad() {
+  const c = cfg(), q = $("q-quad").value.trim();
+  const miss = checkCfg(c, true);
+  if (miss.length) { alert("설정 누락: " + miss.join(", ")); return; }
+  if (!q) { alert("질문을 입력하세요."); return; }
+
+  const btn = $("run-quad"); btn.disabled = true;
+  const P = pipeInit($("pipe-quad"), ["질문 임베딩", "4조합 병렬 실행"]);
+  try {
+    P.run(0); let t0 = performance.now();
+    const emb = await embed(c, q);
+    P.done(0, Math.round(performance.now() - t0));
+
+    P.run(1); t0 = performance.now();
+    const jobs = [
+      { out: "out-q1", ms: "ms-q1", job: runNaive(c, q, emb, "semantic") },
+      { out: "out-q2", ms: "ms-q2", job: runNaive(c, q, emb, "hier") },
+      { out: "out-q3", ms: "ms-q3", job: runAdvanced(c, q, emb, "semantic") },
+      { out: "out-q4", ms: "ms-q4", job: runAdvanced(c, q, emb, "hier") },
+    ];
+    const results = await Promise.allSettled(jobs.map(j => j.job));
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") renderResult(jobs[i].out, jobs[i].ms, r.value);
+      else renderError(jobs[i].out, r.reason);
+    });
+    P.done(1, Math.round(performance.now() - t0));
+  } catch (e) {
+    P.fail(0);
+    ["out-q1","out-q2","out-q3","out-q4"].forEach(id => renderError(id, e));
+  } finally { btn.disabled = false; }
+}
+
+// ============================================================
+// 탭 전환 + 이벤트 바인딩
+// ============================================================
+const tabs = [["tb-naive","p-naive"],["tb-adv","p-adv"],["tb-quad","p-quad"]];
+tabs.forEach(([tb, p]) => {
+  $(tb).addEventListener("click", () => {
+    tabs.forEach(([tb2, p2]) => {
+      $(tb2).classList.toggle("active", tb2 === tb);
+      $(p2).classList.toggle("active", p2 === p);
+    });
+  });
+});
+
+$("run-naive").addEventListener("click", execNaive);
+$("run-adv").addEventListener("click", execAdvanced);
+$("run-quad").addEventListener("click", execQuad);
+["q-naive","q-adv","q-quad"].forEach((id, i) => {
+  $(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") [execNaive, execAdvanced, execQuad][i]();
+  });
+});
+</script>
+</body>
+</html>
